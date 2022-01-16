@@ -3,10 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"time"
-	"io/ioutil"
+	"github.com/joho/godotenv"
+	"github.com/twilio/twilio-go"
+	openapi "github.com/twilio/twilio-go/rest/api/v2010"
 )
 
 type SubCondition struct {
@@ -31,7 +35,7 @@ type DataResponse struct {
 	Data Conditions
 }
 
-func getJSON() *DataResponse {
+func getConditionsResponse() *DataResponse {
 
 	httpClient := http.Client{
 		Timeout: time.Second * 10,
@@ -93,18 +97,57 @@ func filterRating(conditions *[]Condition, minRating string) {
 
 }
 
+func formatMessage(filtered []SubCondition) string {
+	//https://www.twilio.com/docs/glossary/what-sms-character-limit
+	stringBase := "Go Surf!"
+
+	for i := range filtered {
+		stringBase = fmt.Sprint(stringBase, "\n", filtered[i].ForecastDay, " ", filtered[i].TimeOfDay, ": ", filtered[i].MinHeight, "-", filtered[i].MaxHeight, " ", filtered[i].Rating)
+	}
+
+	return stringBase
+}
+
+func sendMessage(client *twilio.RestClient, message string) {
+    from := os.Getenv("TWILIO_FROM_PHONE_NUMBER")
+    to := os.Getenv("TWILIO_TO_PHONE_NUMBER")
+
+    params := &openapi.CreateMessageParams{}
+    params.SetTo(to)
+    params.SetFrom(from)
+    params.SetBody(message)
+
+    resp, err := client.ApiV2010.CreateMessage(params)
+    if err != nil {
+        fmt.Println(err.Error())
+    } else {
+        response, _ := json.Marshal(*resp)
+        fmt.Println("Response: " + string(response))
+    }
+}
+
+func loadEnvVars() {
+  err := godotenv.Load()
+  if err != nil {
+    log.Fatal("Error loading .env file")
+  }
+}
+
 
 func main() {
+	loadEnvVars()
 
-	c := getJSON()
+	client := twilio.NewRestClient()
 
-	filtered := filterWaveHeight(c.Data.Conditions, 2)
+	rsp := getConditionsResponse()
 
+	filtered := filterWaveHeight(rsp.Data.Conditions, 2)
 
-
-
-	fmt.Printf("body: %v\n", filtered)
-
+	if len(filtered) > 0 {
+		message := formatMessage(filtered)
+		fmt.Printf("message", message);
+		sendMessage(client, message)
+	}
 }
 
 // make httpService (getJSON)
